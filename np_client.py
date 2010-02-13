@@ -89,10 +89,12 @@ class Player:
         pos = (int(self.x), int(self.y))
         draw.circle(s, color, pos, Player.RADIUS)
 
+
 class Game:
     def __init__(self):
         display.init()
         self.run()
+        self.net_tick = 0
 
     def input(self):
         events = []
