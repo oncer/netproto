@@ -8,8 +8,9 @@ from np_client import Player
 
 class Client:
     INITIAL_TIMEOUT = FRAMETIME * 2
-    def __init__(self, addr, player):
+    def __init__(self, addr, id, player):
         self.addr = addr
+        self.id = id
         self.player = player
         self.timeout = Client.INITIAL_TIMEOUT
 
@@ -20,50 +21,76 @@ class Client:
         self.timeout = Client.INITIAL_TIMEOUT
 
 
+class InputThread(Thread):
+    def __init__(self, parent):
+        Thread.__init__(self)
+        self.parent = parent
+
+    def run(self):
+        print "Press ENTER to exit."
+        a = raw_input()
+        self.parent.quit = True
+
+
 class SocketThread(Thread):
     def __init__(self, parent):
         Thread.__init__(self)
         self.daemon = True
         self.server = parent.server
-        self.players = parent.players
+        self.clients = parent.clients
         self.lock = parent.lock
         self.pkg_queue = parent.pkg_queue
         self.parent = parent
+        self.next_id = 0
 
     def run(self):
         while True:
             data, addr = self.server.recv()
             pkg = Packet.unpack(data)
+            print "got packet: %s, %s" % (pkg.tick, pkg.players)
             with self.lock:
                 net_tick = self.parent.net_tick
-                if pkg.tick >= net_tick
-                    if net_tick not in pkg_queue:
-                        pkg_queue[net_tick] = []
-                    pkg_queue[net_tick].insert(0, pkg)
+                if addr not in self.clients:
+                    self.clients[addr] = Client(addr, self.next_id, Player(50 + self.next_id * 30, 50))
+                    self.next_id += 1
+                    pkg_response = Packet(net_tick)
+                    pkg_response.add(self.clients[addr].id, self.clients[addr].player)
+                    self.server.send(pkg_response, addr)
+                if pkg.tick >= net_tick:
+                    if net_tick not in self.pkg_queue:
+                        self.pkg_queue[net_tick] = []
+                    self.pkg_queue[net_tick].insert(0, pkg)
                 else:
-                    print "discard packet (too old)"
+                    print "discard packet (too old: %d < %d)" % (pkg.tick, net_tick)
 
 
 class GameServer:
     def __init__(self):
-        pass
+        self.quit = False
 
     def update(self):
-        
+        self.net_tick += 1
 
     def send_new_state(self):
         pass
 
     def run(self):
         self.net_tick = 0
-        self.players = {}
+        self.clients = {}
         self.lock = Lock()
         self.server = UdpServer(25000)
-        self.socket_thread = SocketThread(self)
         self.pkg_queue = {}
 
+        self.socket_thread = SocketThread(self)
+        self.socket_thread.start()
+
+        print "Server up and running."
+
+        self.input_thread = InputThread(self)
+        self.input_thread.start()
+
         ticks_start = time.get_ticks()
-        while True:
+        while not self.quit:
             ticks = time.get_ticks() - ticks_start - self.net_tick * FRAMETIME
             update_count = ticks / FRAMETIME
             with self.lock:

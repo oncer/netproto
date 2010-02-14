@@ -2,11 +2,13 @@
 
 from pygame import display, event, draw, time
 from pygame.locals import *
+from threading import Thread, Lock
 
-WIDTH  = 640
-HEIGHT = 480
+from globals import *
+from packet import Packet
+from udp import UdpClient 
 
-"""for now, we make it a single player game"""
+"""let's talk about multiplayer"""
 
 class GameState:
     def __init__(self, num_players=1):
@@ -90,11 +92,15 @@ class Player:
         draw.circle(s, color, pos, Player.RADIUS)
 
 
+class SocketThread(Thread):
+    def __init__(self, parent):
+        self.parent = parent
+        self.lock = parent.lock
+
 class Game:
     def __init__(self):
         display.init()
         self.run()
-        self.net_tick = 0
 
     def input(self):
         events = []
@@ -105,23 +111,89 @@ class Game:
                     self.quit = True
         return events
 
+    def set_state(self, pkg):
+        for p in pkg.players:
+            id, x, y, vx, vy, ax, ay = p
+            while id >= len(self.gamestate.players):
+                self.gamestate.players.append(Player(200, 200))
+            player = self.gamestate.players[id]
+            player.x = x
+            player.y = y
+            player.vx = vx
+            player.vy = vy
+            player.ax = ax
+            player.ay = ay
+        self.net_tick = pkg.tick
+        pass # TODO: truncate command queue
+
+    def authenticate(self):
+        """ call this before opening the game
+        gets the current tick from the server
+        and synchronizes the game state """
+
+        def threaded_recv(retlist):
+            response, addr = self.client.recv()
+            retlist.append(response)
+
+        pkg_request = Packet(0)
+        self.client.send(pkg_request)
+        retlist = []
+        t = Thread(target = lambda: threaded_recv(retlist))
+        t.daemon = True
+        t.start()
+        wait_start = time.get_ticks()
+        wait_end = wait_start + 1000
+        while len(retlist) <= 0 and time.get_ticks() < wait_end:
+            time.wait(1)
+
+        if len(retlist) > 0:
+            response = retlist[0]
+            pkg_response = Packet.unpack(response)
+            self.tick_offset = pkg_response.tick + 5 # start 5 ticks ahead of the server
+            self.id = pkg_response.players[0][0]
+            self.set_state(pkg_response)
+        else:
+            raise RuntimeError("Server not responding")
+
+    def send_state(self):
+        """ call only after authenticate, otherwise self.id is undefined """
+
+        ticks = self.net_tick + self.tick_offset
+        pkg = Packet(ticks)
+        pkg.add(self.id, self.gamestate.players[self.id])
+        self.client.send(pkg)
+
     def run(self):
         self.screen = display.set_mode((WIDTH, HEIGHT), 0, 0)
+        display.set_caption("NetProto Client", "np_cli")
         self.quit = False
-        self.gamestate = GameState()
-        t = 0
+        self.gamestate = GameState(0)
+
+        self.lock = Lock()
+        self.client = UdpClient("127.0.0.1", 25000)
+
+        print "Authenticating..."
+        try:
+            self.authenticate()
+        except RuntimeError as e:
+            print e
+            return
+        self.net_tick = 0
+        print "Start game at tick %d." % self.tick_offset
+        t_start = time.get_ticks()
         while not self.quit:
 
-            t1 = time.get_ticks()
+            t = time.get_ticks() - t_start - self.net_tick * FRAMETIME
 
             # GAMESTATE LOGIC
-            ticks = t / 16
-            t = t % 16
+            ticks = t / FRAMETIME
             for i in xrange(ticks):
                 events = self.input()
                 for player in self.gamestate.players:
                     player.input(events)
                     player.logic()
+                self.send_state()
+                self.net_tick += 1
 
             # DISPLAY LOGIC
             if ticks > 0:
@@ -132,9 +204,6 @@ class Game:
 
             time.wait(1)
 
-            t2 = time.get_ticks()
-            dt = t2 - t1
-            t += dt
 
 if __name__ == "__main__":
     Game()

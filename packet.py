@@ -1,7 +1,5 @@
 import struct
 
-def packet_unpack(binary_data):
-
 class Packet:
     def __init__(self, tick, players=None):
         self.tick = tick
@@ -38,7 +36,7 @@ class Packet:
  
 if __name__ == "__main__": # test code
     p = Packet(2134, [(1, 22, 33, 0, 0, 1, 0), (2, 21, 23, 5, 5, 1, -1)])
-    p2 = make_packet(p.serialize())
+    p2 = Packet.unpack(p.serialize())
     assert(len(p.players) == len(p2.players) == 2)
     assert(p.tick == p2.tick)
     assert(p.players[0] == p2.players[0])

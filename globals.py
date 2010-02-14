@@ -1,1 +1,5 @@
+WIDTH  = 640
+HEIGHT = 480
+
 FRAMETIME = 16
+
