@@ -11,8 +11,8 @@ from udp import UdpClient
 """let's talk about multiplayer"""
 
 class GameState:
-    def __init__(self, num_players=1):
-        self.players = [Player(i*40, 40) for i in xrange(1,num_players + 1)]
+    def __init__(self):
+        self.players = {}
 
 class Player:
     MAX_SPEED = 7
@@ -97,6 +97,11 @@ class SocketThread(Thread):
         self.parent = parent
         self.lock = parent.lock
 
+class TickEvent:
+    def __init__(self, tick, event):
+        self.tick = tick
+        self.event = event
+
 class Game:
     def __init__(self):
         display.init()
@@ -106,16 +111,23 @@ class Game:
         events = []
         for e in event.get():
             events.append(e)
+            self.past_events.append(TickEvent(self.net_tick, e))
             if e.type == KEYDOWN:
                 if e.key == K_ESCAPE:
                     self.quit = True
         return events
 
-    def set_state(self, pkg):
+    def process_tick(self, events):
+        for id, player in self.gamestate.players.items():
+            if id == self.id:
+                player.input(events)
+            player.logic()
+
+    def set_state(self, pkg, backtrack=True):
         for p in pkg.players:
             id, x, y, vx, vy, ax, ay = p
-            while id >= len(self.gamestate.players):
-                self.gamestate.players.append(Player(200, 200))
+            if id not in self.gamestate.players:
+                self.gamestate.players[id] = Player(0,0)
             player = self.gamestate.players[id]
             player.x = x
             player.y = y
@@ -123,8 +135,22 @@ class Game:
             player.vy = vy
             player.ax = ax
             player.ay = ay
-        self.net_tick = pkg.tick
-        pass # TODO: truncate command queue
+        if backtrack:
+            tick = pkg.tick
+            while tick < self.net_tick + self.tick_offset: # apply user input to new state
+                trunc_indices = [] # list indices to remove (too old)
+                events = [] # list of events to apply
+                for i in xrange(len(self.past_input)):
+                    if self.past_input[i].tick < tick:
+                        trunc_queue.append(i)
+                    elif self.past_input[i].tick == tick:
+                        apply_list.append(self.past_input[i].event)
+                    elif self.past_input[i].tick > tick:
+                        break # assuming the list is sorted in ascending order
+                tick += 1
+                for idx in trunc_indices:
+                    del self.past_input[idx]
+                self.process_tick(events)
 
     def authenticate(self):
         """ call this before opening the game
@@ -151,7 +177,7 @@ class Game:
             pkg_response = Packet.unpack(response)
             self.tick_offset = pkg_response.tick + 5 # start 5 ticks ahead of the server
             self.id = pkg_response.players[0][0]
-            self.set_state(pkg_response)
+            self.set_state(pkg_response, backtrack=False)
         else:
             raise RuntimeError("Server not responding")
 
@@ -167,7 +193,7 @@ class Game:
         self.screen = display.set_mode((WIDTH, HEIGHT), 0, 0)
         display.set_caption("NetProto Client", "np_cli")
         self.quit = False
-        self.gamestate = GameState(0)
+        self.gamestate = GameState()
 
         self.lock = Lock()
         self.client = UdpClient("127.0.0.1", 25000)
@@ -178,6 +204,7 @@ class Game:
         except RuntimeError as e:
             print e
             return
+        self.past_events = []
         self.net_tick = 0
         print "Start game at tick %d." % self.tick_offset
         t_start = time.get_ticks()
@@ -189,18 +216,16 @@ class Game:
             ticks = t / FRAMETIME
             for i in xrange(ticks):
                 events = self.input()
-                for player in self.gamestate.players:
-                    player.input(events)
-                    player.logic()
+                self.process_tick(events)
                 self.send_state()
                 self.net_tick += 1
 
             # DISPLAY LOGIC
             if ticks > 0:
                 self.screen.fill((120, 120, 128))
-                for player in self.gamestate.players:
+                for player in self.gamestate.players.values():
                     player.draw(self.screen)
-                    display.flip()
+                display.flip()
 
             time.wait(1)
 

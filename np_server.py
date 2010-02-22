@@ -20,6 +20,9 @@ class Client:
     def ack(self):
         self.timeout = Client.INITIAL_TIMEOUT
 
+    def is_dead(self):
+        return self.timeout <= 0
+
 
 class InputThread(Thread):
     def __init__(self, parent):
@@ -51,11 +54,16 @@ class SocketThread(Thread):
             with self.lock:
                 net_tick = self.parent.net_tick
                 if addr not in self.clients:
-                    self.clients[addr] = Client(addr, self.next_id, Player(50 + self.next_id * 30, 50))
-                    self.next_id += 1
-                    pkg_response = Packet(net_tick)
-                    pkg_response.add(self.clients[addr].id, self.clients[addr].player)
-                    self.server.send(pkg_response, addr)
+                    if pkg.tick == 0 and len(pkg.players) == 0:
+                        self.clients[addr] = Client(addr, self.next_id, Player(50 + self.next_id * 30, 50))
+                        self.next_id += 1
+                        pkg_response = Packet(net_tick)
+                        pkg_response.add(self.clients[addr].id, self.clients[addr].player)
+                        self.server.send(pkg_response, addr)
+                    else:
+                        print "invalid authentication attempt: %s, %s" % (pkg.tick, pkg.players)
+                else:
+                    self.clients[addr].ack()
                 if pkg.tick >= net_tick:
                     if net_tick not in self.pkg_queue:
                         self.pkg_queue[net_tick] = []
@@ -97,6 +105,14 @@ class GameServer:
                 for i in xrange(update_count):
                     self.update()
                     self.send_new_state()
+                    dead_clients = []
+                    for addr, client in self.clients.items():
+                        client.countdown()
+                        if client.is_dead():
+                            dead_clients.append(addr)
+                    for addr in dead_clients:
+                        print "removing client %s (timeout)" % str(addr)
+                        del self.clients[addr]
             time.wait(1)
 
 
