@@ -8,7 +8,10 @@ from globals import *
 from packet import Packet
 from udp import UdpClient 
 
-"""let's talk about multiplayer"""
+"""let's talk about multiplayer
+    TODO: send commands instead of state
+    TODO: receive server state (processing functions already implemented)
+"""
 
 class GameState:
     def __init__(self):
