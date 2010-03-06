@@ -1,4 +1,6 @@
 import struct
+from pygame.event import Event
+from pygame.locals import *
 
 class Packet:
     def __init__(self, tick, players=None, input=None):
@@ -18,8 +20,11 @@ class Packet:
         else:
             self.input = []
 
-    def add(self, id, player):
+    def add_player(self, id, player):
         self.players.append((id, player.x, player.y, player.vx, player.vy, player.ax, player.ay))
+
+    def add_input(self, event):
+        self.input.append(event)
 
     def serialize(self):
         p_ret = ""
@@ -29,7 +34,7 @@ class Packet:
         for p in self.players:
             p_ret += struct.pack("Iiiiiii", *p) # player state
         for i in self.input:
-            p_ret += struct.pack("II", *i) # input event
+            p_ret += struct.pack("II", i.key, i.type) # input event
         return p_ret
 
     @classmethod
@@ -52,8 +57,8 @@ class Packet:
         input = []
         for i in xrange(input_count):
             offset = i * input_size
-            t = struct.unpack("II", input_data[offset:(offset + input_size)])
-            input.append(t)
+            key, type = struct.unpack("II", input_data[offset:(offset + input_size)])
+            input.append(Event(type,key=key))
         return cls(tick, players, input)
  
 if __name__ == "__main__": # test code
@@ -66,13 +71,13 @@ if __name__ == "__main__": # test code
     assert(p1.players[1] == p1u.players[1])
     print "--> Packing/Unpacking of players OK"
     
-    p2 = Packet(2135, [], [(2,0), (3,1)])
+    p2 = Packet(2135, [], [Event(KEYDOWN,key=K_LEFT), Event(KEYUP,key=K_UP)])
     p2u = Packet.unpack(p2.serialize())
     assert(len(p2.players) == len(p2u.players) == 0)
     assert(len(p2.input) == len(p2u.input) == 2)
     assert(p2.tick == p2u.tick == 2135)
-    assert(p2.input[0] == p2u.input[0])
-    assert(p2.input[1] == p2u.input[1])
+    assert(p2.input[0].key == p2u.input[0].key)
+    assert(p2.input[1].type == p2u.input[1].type)
     print "--> Packing/Unpacking of input events OK"
 
     print "==> Test OK"

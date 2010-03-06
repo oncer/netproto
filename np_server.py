@@ -4,7 +4,7 @@ from pygame import time
 from udp import UdpServer
 from globals import FRAMETIME
 from packet import Packet
-from np_client import Player
+from player import Player
 
 class Client:
     INITIAL_TIMEOUT = FRAMETIME * 2
@@ -13,6 +13,7 @@ class Client:
         self.id = id
         self.player = player
         self.timeout = Client.INITIAL_TIMEOUT
+        self.events = {}
 
     def countdown(self):
         self.timeout -= 1
@@ -42,7 +43,6 @@ class SocketThread(Thread):
         self.server = parent.server
         self.clients = parent.clients
         self.lock = parent.lock
-        self.pkg_queue = parent.pkg_queue
         self.parent = parent
         self.next_id = 0
 
@@ -54,22 +54,26 @@ class SocketThread(Thread):
             with self.lock:
                 net_tick = self.parent.net_tick
                 if addr not in self.clients:
-                    if pkg.tick == 0 and len(pkg.players) == 0:
+                    if pkg.tick == 0 and len(pkg.players) == 0 and len(pkg.input) == 0:
                         self.clients[addr] = Client(addr, self.next_id, Player(50 + self.next_id * 30, 50))
                         self.next_id += 1
                         pkg_response = Packet(net_tick)
                         pkg_response.add(self.clients[addr].id, self.clients[addr].player)
                         self.server.send(pkg_response, addr)
+                        print "authenticating new client: %s -> %s" % (addr, self.clients[addr].id)
                     else:
-                        print "invalid authentication attempt: %s, %s" % (pkg.tick, pkg.players)
+                        print "invalid authentication attempt: %s, %s, %s" % (pkg.tick, pkg.players, pkg.input)
                 else:
-                    self.clients[addr].ack()
-                if pkg.tick >= net_tick:
-                    if net_tick not in self.pkg_queue:
-                        self.pkg_queue[net_tick] = []
-                    self.pkg_queue[net_tick].insert(0, pkg)
-                else:
-                    print "discard packet (too old: %d < %d)" % (pkg.tick, net_tick)
+                    client = self.clients[addr]
+                    client.ack()
+                    if pkg.tick >= net_tick:
+                        if len(pkg.input) > 0:
+                            client.events[pkg.tick] = pkg.input
+                        #if net_tick not in self.pkg_queue:
+                            #self.pkg_queue[net_tick] = []
+                        #self.pkg_queue[net_tick].insert(0, pkg)
+                    else:
+                        print "discard packet (too old: %d < %d)" % (pkg.tick, net_tick)
 
 
 class GameServer:
@@ -77,6 +81,11 @@ class GameServer:
         self.quit = False
 
     def update(self):
+        for client in self.clients.values():
+            if self.net_tick in client.events: # input events to process
+                client.player.input(client.events[self.net_tick])
+                del client.events[self.net_tick]
+            client.player.logic()
         self.net_tick += 1
 
     def send_new_state(self):
@@ -87,7 +96,6 @@ class GameServer:
         self.clients = {}
         self.lock = Lock()
         self.server = UdpServer(25000)
-        self.pkg_queue = {}
 
         self.socket_thread = SocketThread(self)
         self.socket_thread.start()
