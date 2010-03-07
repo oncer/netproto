@@ -20,6 +20,9 @@ class Packet:
         else:
             self.input = []
 
+    def __str__(self):
+        return "Package { tick: %d, players: %s, input: %s }" % (self.tick, self.players, self.input)
+
     def add_player(self, id, player):
         self.players.append((id, player.x, player.y, player.vx, player.vy, player.ax, player.ay))
 

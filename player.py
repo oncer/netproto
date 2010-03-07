@@ -1,4 +1,6 @@
 from pygame import draw
+from pygame.locals import *
+from globals import *
 
 class Player:
     MAX_SPEED = 7

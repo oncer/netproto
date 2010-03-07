@@ -1,5 +1,8 @@
 from socket import *
 from time import time
+from random import Random
+
+port_randomizer = Random()
 
 class UdpServer:
     def __init__(self, port):
@@ -14,11 +17,21 @@ class UdpServer:
         
 
 class UdpClient:
-    def __init__(self, host, port):
+    def __init__(self, host, server_port):
         """ client sends to specified server address """
         self.socket = socket(AF_INET, SOCK_DGRAM)
-        self.socket.bind(("", 27000))
-        self.addr = (host, port) # address to send packets to
+        MAX_TRIES = 5
+        for i in xrange(MAX_TRIES):
+            try:
+                bind_port = 27000 + port_randomizer.randint(0, 999)
+                self.socket.bind(("", bind_port))
+                break
+            except:
+                t = i+1
+                print "Failed to bind to port %d (try %d/%d)." % (bind_port, t, MAX_TRIES)
+                if t == MAX_TRIES:
+                    raise RuntimeError("Failed to bind address.")
+        self.addr = (host, server_port) # address to send packets to
 
     def send(self, packet):
         self.socket.sendto(packet.serialize(), 0, self.addr)

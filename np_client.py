@@ -29,13 +29,22 @@ class SocketThread(Thread):
     def run(self):
         while True:
             data, addr = self.client.recv()
-            print "client received: %s %s" % (data, addr)
+            try:
+                pkg = Packet.unpack(data)
+            except:
+                print "invalid package from %s" % addr
+                continue
+            with self.lock:
+                self.parent.set_state(pkg, backtrack=True)
 
 
 class TickEvent:
     def __init__(self, tick, event):
         self.tick = tick
         self.event = event
+
+    def __str__(self):
+        return "%s { %s, %s }" % (self.__class__.__name__, self.tick, self.event)
 
 class Game:
     def __init__(self):
@@ -72,20 +81,19 @@ class Game:
             player.ay = ay
         if backtrack:
             tick = pkg.tick
-            while tick < self.net_tick + self.tick_offset: # apply user input to new state
-                trunc_indices = [] # list indices to remove (too old)
-                events = [] # list of events to apply
-                for i in xrange(len(self.past_input)):
-                    if self.past_input[i].tick < tick:
-                        trunc_queue.append(i)
-                    elif self.past_input[i].tick == tick:
-                        apply_list.append(self.past_input[i].event)
-                    elif self.past_input[i].tick > tick:
+
+            self.past_events = [e for e in self.past_events if e.tick >= tick]
+
+            while tick < self.net_tick: # apply user input to new state
+                trunc_events = [] # list of events to remove (too old)
+                apply_events = [] # list of events to apply
+                for e in self.past_events:
+                    if e.tick == tick:
+                        apply_events.append(e.event)
+                    elif e.tick > tick:
                         break # assuming the list is sorted in ascending order
+                self.process_tick(apply_events)
                 tick += 1
-                for idx in trunc_indices:
-                    del self.past_input[idx]
-                self.process_tick(events)
 
     def authenticate(self):
         """ call this before opening the game
@@ -110,15 +118,16 @@ class Game:
         if len(retlist) > 0:
             response = retlist[0]
             pkg_response = Packet.unpack(response)
-            self.tick_offset = pkg_response.tick + 5 # start 5 ticks ahead of the server
+            self.start_tick = pkg_response.tick + FPS/2
+            if len(pkg_response.players) <= 0:
+                raise RuntimeError("Invalid response: %s" % pkg_response)
             self.id = pkg_response.players[0][0]
             self.set_state(pkg_response, backtrack=False)
         else:
             raise RuntimeError("Server not responding")
 
     def send_state(self, events):
-        ticks = self.net_tick + self.tick_offset
-        pkg = Packet(ticks)
+        pkg = Packet(self.net_tick)
         for event in events:
             if event.type in [KEYDOWN, KEYUP]:
                 pkg.add_input(event)
@@ -140,20 +149,25 @@ class Game:
             print e
             return
         self.past_events = []
-        self.net_tick = 0
-        print "Start game at tick %d." % self.tick_offset
+        self.net_tick = self.start_tick
+        print "Start game at tick %d." % self.start_tick
+
+        self.socket_thread = SocketThread(self)
+        self.socket_thread.start()
+
         t_start = time.get_ticks()
         while not self.quit:
 
-            t = time.get_ticks() - t_start - self.net_tick * FRAMETIME
+            with self.lock:
+                t = time.get_ticks() - t_start - (self.net_tick - self.start_tick) * FRAMETIME
 
-            # GAMESTATE LOGIC
-            ticks = t / FRAMETIME
-            for i in xrange(ticks):
-                events = self.input()
-                self.send_state(events)
-                self.process_tick(events)
-                self.net_tick += 1
+                # GAMESTATE LOGIC
+                ticks = t / FRAMETIME
+                for i in xrange(ticks):
+                    events = self.input()
+                    self.send_state(events)
+                    self.process_tick(events)
+                    self.net_tick += 1
 
             # DISPLAY LOGIC
             if ticks > 0:

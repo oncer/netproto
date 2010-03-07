@@ -2,12 +2,12 @@ from threading import Thread, Lock
 from pygame import time
 
 from udp import UdpServer
-from globals import FRAMETIME
+from globals import *
 from packet import Packet
 from player import Player
 
 class Client:
-    INITIAL_TIMEOUT = FRAMETIME * 2
+    INITIAL_TIMEOUT = FPS * 2
     def __init__(self, addr, id, player):
         self.addr = addr
         self.id = id
@@ -50,7 +50,7 @@ class SocketThread(Thread):
         while True:
             data, addr = self.server.recv()
             pkg = Packet.unpack(data)
-            print "got packet: %s, %s" % (pkg.tick, pkg.players)
+            #print "got packet: %s, %s, %s" % (pkg.tick, pkg.players, pkg.input)
             with self.lock:
                 net_tick = self.parent.net_tick
                 if addr not in self.clients:
@@ -58,7 +58,7 @@ class SocketThread(Thread):
                         self.clients[addr] = Client(addr, self.next_id, Player(50 + self.next_id * 30, 50))
                         self.next_id += 1
                         pkg_response = Packet(net_tick)
-                        pkg_response.add(self.clients[addr].id, self.clients[addr].player)
+                        pkg_response.add_player(self.clients[addr].id, self.clients[addr].player)
                         self.server.send(pkg_response, addr)
                         print "authenticating new client: %s -> %s" % (addr, self.clients[addr].id)
                     else:
@@ -89,7 +89,11 @@ class GameServer:
         self.net_tick += 1
 
     def send_new_state(self):
-        pass
+        pkg_state = Packet(self.net_tick)
+        for client in self.clients.values(): # construct current state from client data
+            pkg_state.add_player(client.id, client.player)
+        for addr in self.clients.keys(): # broadcast current state to all connected clients
+            self.server.send(pkg_state, addr)
 
     def run(self):
         self.net_tick = 0
