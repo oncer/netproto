@@ -82,7 +82,7 @@ class Game:
         if backtrack:
             tick = pkg.tick
 
-            if tick >= self.net_tick:
+            if tick >= self.net_tick: # does this really work?
                 offset = tick - self.net_tick + 1
                 self.net_tick += offset
                 self.start_tick += offset
