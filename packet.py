@@ -35,14 +35,14 @@ class Packet:
         p_ret += struct.pack("I", len(self.players)) # number of player states
         p_ret += struct.pack("I", len(self.input)) # numer of input events
         for p in self.players:
-            p_ret += struct.pack("Iiiiiii", *p) # player state
+            p_ret += struct.pack("Idddddd", *p) # player state
         for i in self.input:
             p_ret += struct.pack("II", i.key, i.type) # input event
         return p_ret
 
     @classmethod
     def unpack(cls, binary_data):
-        player_size = struct.calcsize("Iiiiiii")
+        player_size = struct.calcsize("Idddddd")
         input_size = struct.calcsize("II")
         players_offset = struct.calcsize("LII")
         header_data = binary_data[:players_offset]
@@ -55,7 +55,7 @@ class Packet:
         players = []
         for i in xrange(players_count):
             offset = i * player_size
-            t = struct.unpack("Iiiiiii", players_data[offset:(offset + player_size)])
+            t = struct.unpack("Idddddd", players_data[offset:(offset + player_size)])
             players.append(t)
         input = []
         for i in xrange(input_count):

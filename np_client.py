@@ -82,18 +82,23 @@ class Game:
         if backtrack:
             tick = pkg.tick
 
-            self.past_events = [e for e in self.past_events if e.tick >= tick]
+            if tick >= self.net_tick:
+                offset = tick - self.net_tick + 1
+                self.net_tick += offset
+                self.start_tick += offset
+            else:
+                self.past_events = [e for e in self.past_events if e.tick >= tick]
 
-            while tick < self.net_tick: # apply user input to new state
-                trunc_events = [] # list of events to remove (too old)
-                apply_events = [] # list of events to apply
-                for e in self.past_events:
-                    if e.tick == tick:
-                        apply_events.append(e.event)
-                    elif e.tick > tick:
-                        break # assuming the list is sorted in ascending order
-                self.process_tick(apply_events)
-                tick += 1
+                while tick < self.net_tick: # apply user input to new state
+                    trunc_events = [] # list of events to remove (too old)
+                    apply_events = [] # list of events to apply
+                    for e in self.past_events:
+                        if e.tick == tick:
+                            apply_events.append(e.event)
+                        elif e.tick > tick:
+                            break # assuming the list is sorted in ascending order
+                    self.process_tick(apply_events)
+                    tick += 1
 
     def authenticate(self):
         """ call this before opening the game
@@ -118,7 +123,7 @@ class Game:
         if len(retlist) > 0:
             response = retlist[0]
             pkg_response = Packet.unpack(response)
-            self.start_tick = pkg_response.tick + FPS/2
+            self.start_tick = pkg_response.tick
             if len(pkg_response.players) <= 0:
                 raise RuntimeError("Invalid response: %s" % pkg_response)
             self.id = pkg_response.players[0][0]
